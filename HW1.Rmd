@@ -1,0 +1,338 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+
+First, we'll load the packages we need. Lubridate will help us organize the inspection months in order, dplyr and tidyr will help us manipulate and spread dataframes, and ggplot will visualize the data for us.
+
+```{r}
+library("lubridate")
+library("dplyr")
+library("tidyr")
+library("ggplot2")
+```
+
+We'll load the initial data - these files are a bit big for my MacBook Air to handle...
+
+```{r}
+restaurant_inspections <- read.csv("restaurant_inspections.csv")
+rodent_inspections <- read.csv("rodent_inspections.csv")
+calls <- read.csv("sandy.csv")
+```
+
+Part 1 - Visualizing trends in rat sightings. We're going to make some graphs to see how rat sightings in each of the 5 boroughs have increased or decreased over the past 5 years.
+
+First, we'll need to convert the data column into a Lubridate, and split it into month and year.
+
+```{r}
+rodent_inspections <- mutate(rodent_inspections, INSPECTION_DATE = mdy_hms(INSPECTION_DATE))
+rodent_inspections <- mutate(rodent_inspections, INSPECTION_MONTH = as.numeric(month(INSPECTION_DATE)))
+rodent_inspections <- mutate(rodent_inspections, INSPECTION_YEAR = as.numeric(year(INSPECTION_DATE)))
+```
+
+Then we'lll separate the most recent 5 years, and select only rows where there were active rat signs.
+
+```{r}
+last_5 <- filter(rodent_inspections, INSPECTION_YEAR %in% seq(2011,2015,1))
+last_5_active <- filter(last_5, RESULT == "Active Rat Signs")
+```
+
+Now we sequence the months for plotting from 1-60, and create a table of the frequencies per month.
+
+```{r}
+last_5_active_sequenced <- mutate(last_5_active, SEQUENCED_MONTH = (INSPECTION_MONTH + 12*(INSPECTION_YEAR - 2011)))
+freq_table <- last_5_active_sequenced %>% group_by(SEQUENCED_MONTH, RESULT) %>% summarize(count = n())
+```
+
+Finally, we can plot the frequencies per month as aggregate, and then per borough.
+
+```{r}
+freq_plot <- ggplot(freq_table, aes(freq_table$SEQUENCED_MONTH, freq_table$count)) + geom_line(group=1)
+freq_plot <- freq_plot + ggtitle("Rat Sightings Since 2011 by Month") + labs(x="Month",y="Frequency")
+freq_plot <- freq_plot + scale_x_continuous(breaks = seq(0,60,12))
+freq_plot
+```
+
+Now, by borough.
+
+```{r}
+bronx <- filter(last_5_active_sequenced, BOROUGH == 'Bronx')
+bronx_freq <- bronx %>% group_by(SEQUENCED_MONTH, RESULT) %>% summarize(count = n())
+
+staten <- filter(last_5_active_sequenced, BOROUGH == 'Staten Island')
+staten_freq <- staten %>% group_by(SEQUENCED_MONTH, RESULT) %>% summarize(count = n())
+
+queens <- filter(last_5_active_sequenced, BOROUGH == 'Queens')
+queens_freq <- queens %>% group_by(SEQUENCED_MONTH, RESULT) %>% summarize(count = n())
+
+manhattan <- filter(last_5_active_sequenced, BOROUGH == 'Manhattan')
+manhattan_freq <- manhattan %>% group_by(SEQUENCED_MONTH, RESULT) %>% summarize(count = n())
+
+brooklyn <- filter(last_5_active_sequenced, BOROUGH == 'Brooklyn')
+brooklyn_freq <- brooklyn %>% group_by(SEQUENCED_MONTH, RESULT) %>% summarize(count = n())
+```
+
+Bronx.
+
+```{r}
+freq_plot <- ggplot(bronx_freq, aes(SEQUENCED_MONTH, count)) + geom_line(group=1)
+freq_plot <- freq_plot + ggtitle("Rat Sightings Since 2011 by Month (Bronx)") + labs(x="Month",y="Frequency")
+freq_plot <- freq_plot + scale_x_continuous(breaks = seq(0,60,12))
+freq_plot
+```
+
+Brooklyn.
+
+```{r}
+freq_plot <- ggplot(brooklyn_freq, aes(SEQUENCED_MONTH, count)) + geom_line(group=1)
+freq_plot <- freq_plot + ggtitle("Rat Sightings Since 2011 by Month (Brooklyn)") + labs(x="Month",y="Frequency")
+freq_plot <- freq_plot + scale_x_continuous(breaks = seq(0,60,12))
+freq_plot
+```
+
+Staten Island.
+
+```{r}
+freq_plot <- ggplot(staten_freq, aes(SEQUENCED_MONTH, count)) + geom_line(group=1)
+freq_plot <- freq_plot + ggtitle("Rat Sightings Since 2011 by Month (Staten Island)") + labs(x="Month",y="Frequency")
+freq_plot <- freq_plot + scale_x_continuous(breaks = seq(0,60,12))
+freq_plot
+```
+
+Manhattan.
+
+```{r}
+freq_plot <- ggplot(manhattan_freq, aes(SEQUENCED_MONTH, count)) + geom_line(group=1)
+freq_plot <- freq_plot + ggtitle("Rat Sightings Since 2011 by Month (Manhattan)") + labs(x="Month",y="Frequency")
+freq_plot <- freq_plot + scale_x_continuous(breaks = seq(0,60,12))
+freq_plot
+```
+
+Queens.
+
+```{r}
+freq_plot <- ggplot(queens_freq, aes(SEQUENCED_MONTH, count)) + geom_line(group=1)
+freq_plot <- freq_plot + ggtitle("Rat Sightings Since 2011 by Month (Queens)") + labs(x="Month",y="Frequency")
+freq_plot <- freq_plot + scale_x_continuous(breaks = seq(0,60,12))
+freq_plot
+```
+
+Next, let's figure out how efficiency has changed over time - that is, the number of active rat sightings divided by the total number of inspections.
+
+First we'll create a dataframe of the last 5 years, sequenced by month (not only active rat signs cells as before).
+
+```{r}
+last_5_sequenced <- mutate(last_5, SEQUENCED_MONTH = (INSPECTION_MONTH + 12*(INSPECTION_YEAR - 2011)))
+```
+
+Now we group the dataframe by sequenced month, and create columns for the number of cells per, and the total.
+
+```{r}
+grouped <- group_by(last_5_sequenced, BOROUGH, SEQUENCED_MONTH,RESULT)
+grouped <- summarize(grouped,count=n())
+grouped <- mutate(grouped, SUM = sum(count))
+```
+
+For each cell in the grouped dataframe, we create a ratio of the count of active rat sightings to the total number of inspections. There's a better way to do this using a pivot table, which we'll do below for part 3. 
+
+```{r}
+for (i in seq(1,nrow(grouped),1)) {
+  
+  if (grouped[i, 'RESULT'] == 'Active Rat Signs') {
+    grouped[i, 'EFFICIENCY'] = grouped[i, 'count'] / grouped[i, 'SUM']
+  }
+  
+}
+```
+
+Now we can extract all of the efficiency values, and plot them per sequenced month.
+
+Bronx.
+
+```{r}
+perMonth <- filter(grouped, !is.na(EFFICIENCY), BOROUGH == "Bronx")
+
+effPlot <- ggplot(perMonth, aes(SEQUENCED_MONTH, EFFICIENCY)) + geom_line(group=1)
+last_plot() + ggtitle("Rat Inspection Efficiency by Month - Bronx") + labs(x="Month", y="Efficiency") + scale_x_continuous(breaks = seq(0,60,12))
+```
+
+Brooklyn.
+
+```{r}
+perMonth <- filter(grouped, !is.na(EFFICIENCY), BOROUGH == "Brooklyn")
+
+effPlot <- ggplot(perMonth, aes(SEQUENCED_MONTH, EFFICIENCY)) + geom_line(group=1)
+last_plot() + ggtitle("Rat Inspection Efficiency by Month - Brooklyn") + labs(x="Month", y="Efficiency") + scale_x_continuous(breaks = seq(0,60,12))
+```
+
+Staten Island.
+
+```{r}
+perMonth <- filter(grouped, !is.na(EFFICIENCY), BOROUGH == "Staten Island")
+
+effPlot <- ggplot(perMonth, aes(SEQUENCED_MONTH, EFFICIENCY)) + geom_line(group=1)
+last_plot() + ggtitle("Rat Inspection Efficiency by Month - Staten Island") + labs(x="Month", y="Efficiency") + scale_x_continuous(breaks = seq(0,60,12))
+```
+
+Manhattan.
+
+```{r}
+perMonth <- filter(grouped, !is.na(EFFICIENCY), BOROUGH == "Manhattan")
+
+effPlot <- ggplot(perMonth, aes(SEQUENCED_MONTH, EFFICIENCY)) + geom_line(group=1)
+last_plot() + ggtitle("Rat Inspection Efficiency by Month - Manhattan") + labs(x="Month", y="Efficiency") + scale_x_continuous(breaks = seq(0,60,12))
+```
+
+Queens.
+
+```{r}
+perMonth <- filter(grouped, !is.na(EFFICIENCY), BOROUGH == "Queens")
+
+effPlot <- ggplot(perMonth, aes(SEQUENCED_MONTH, EFFICIENCY)) + geom_line(group=1)
+last_plot() + ggtitle("Rat Inspection Efficiency by Month - Queens") + labs(x="Month", y="Efficiency") + scale_x_continuous(breaks = seq(0,60,12))
+```
+
+Lastly, let's figure out which Zipcodes had the most active rat sightings.
+
+We can group the active-filtered dataframe by zip code, summarize by count of cells per, and arrange descending.
+
+```{r}
+groupedByZip <- last_5_active %>% group_by(ZIP_CODE,RESULT) %>% summarize(count=n()) %>% arrange(desc(count))
+groupedByZip
+```
+
+Let's see if Hurricane Sandy had any impact on the Zipcode distribution.
+
+First we'll find the top 20 zipcodes pre sandy (2012).
+
+```{r}
+active <- filter(rodent_inspections, RESULT == 'Active Rat Signs')
+pre_sandy <- active %>% filter(INSPECTION_YEAR < 2012 & INSPECTION_YEAR >= 2011) %>% group_by(ZIP_CODE, RESULT) %>% summarize(count = n()) %>% arrange(desc(count))
+head(pre_sandy, n=20)
+```
+
+Then, we find the top 20 zipcodes post sandy.
+
+```{r}
+post_sandy <- active %>% filter(INSPECTION_YEAR >= 2012 & INSPECTION_YEAR < 2016) %>% group_by(ZIP_CODE, RESULT) %>% summarize(count = n()) %>% arrange(desc(count))
+head(post_sandy, n=20)
+```
+
+We can also locate the top 20 zipcodes of sandy calls about rat sightings from the 311 calls database.
+
+```{r}
+rat_calls <- calls %>% filter(Descriptor == 'Rat Sighting') %>% group_by(Incident.Zip, Descriptor) %>% summarize(count = n()) %>% arrange(desc(count))
+rat_calls
+```
+
+Something is wrong with the calls list (I think), but based on the first two, there was NOT significant displacement in the rat population. The top 10 zip codes are basically the same, almost in the same order.
+
+Part 3 - Predicting rat related violations in restaurants based on rat sightings in homes in the area.
+
+We're going to run a logistic regression to find that answer.
+
+First, we make a new binary column in the restaurant_inspections dataframe that contains whether there was a rat related violation (1 = yes) based on violation codes.
+
+```{r}
+violation_codes <- c("04L", "04K", "08A")
+restaurant_inspections <- mutate(restaurant_inspections, RatViolation = ifelse(VIOLATION.CODE %in% violation_codes, 1, 0))
+```
+
+Then, we'll remove errant zipcodes by grouping the data by zipcode and comparing to a list of nons. This pivot table is why we need the Tidyr package, for the spread function.
+
+```{r}
+freqs <- data.frame(table(last_5_sequenced$ZIP_CODE, last_5_sequenced$SEQUENCED_MONTH, last_5_sequenced$RESULT))
+colnames(freqs) <- c("Zip", "Month", "Result", "Frequency")
+freqs_df <- spread(freqs, Result, Frequency)
+freqs_df[,3] <- NULL
+```
+
+Filter out non-zips.
+
+```{r}
+non_zips <- c(0,1,10,111111,9999999)
+freqs_df <- filter(freqs_df, !(Zip %in% non_zips))
+```
+
+Calculate efficiencies.
+
+```{r}
+freqs_df$Total <- rowSums(freqs_df[,seq(3,ncol(freqs_df)-1)])
+freqs_df$Efficiency <- freqs_df$`Active Rat Signs` / freqs_df$Total
+```
+
+Filter out NA.
+
+```{r}
+freqs_df[is.na(freqs_df)] <- 0
+```
+
+Now we merge the grouped dataset with the restaurant_inspections dataframe.
+
+First we'll set up the columns in the restaurant_inspection dataframe as in the rodent_inspection one - with months sequenced from 1-60. We need to do this so we can merge them on mutual columns.
+
+```{r}
+restaurant_inspections_new <- mutate(restaurant_inspections, INSPECTION.DATE = mdy(INSPECTION.DATE))
+restaurant_inspections_new <- mutate(restaurant_inspections_new, INSPECTION_MONTH = as.numeric(month(INSPECTION.DATE)))
+restaurant_inspections_new <- mutate(restaurant_inspections_new, INSPECTION_YEAR = as.numeric(year(INSPECTION.DATE)))
+
+last_5_restaurants <- filter(restaurant_inspections_new, INSPECTION_YEAR %in% seq(2011,2016,1))
+last_5_restaurants_sequenced <- mutate(last_5_restaurants, SEQUENCED_MONTH = (INSPECTION_MONTH + 12*(INSPECTION_YEAR - 2011)))
+```
+
+Finally, we'll merge the two dataframes on zip codes and sequenced months.
+
+```{r}
+names(last_5_restaurants_sequenced)[6] <- "Zip"
+names(last_5_restaurants_sequenced)[ncol(last_5_restaurants_sequenced)] <- "Month"
+merged <- merge(last_5_restaurants_sequenced, freqs_df, by=c("Zip","Month"))
+```
+
+Regression:
+
+Reset the year and month as factor variables.
+
+```{r}
+merged$INSPECTION_YEAR.f <- as.factor(merged$INSPECTION_YEAR)
+merged$INSPECTION_MONTH.f <- as.factor(merged$INSPECTION_MONTH)
+merged$Month.f <- as.factor(merged$Month)
+```
+
+Select the columns that are important.
+
+```{r}
+merged_selected <- select(merged, Zip, Month.f, INSPECTION_MONTH.f, INSPECTION_YEAR.f, DBA, RatViolation, Efficiency)
+```
+
+Run a logistic regression. 
+
+```{r}
+reg <- glm(data=merged_selected, RatViolation ~ Efficiency + INSPECTION_MONTH.f + INSPECTION_YEAR.f, family = "binomial")
+```
+
+```{r}
+summary(reg)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
